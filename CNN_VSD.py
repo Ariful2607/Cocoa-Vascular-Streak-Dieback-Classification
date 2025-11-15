@@ -1,0 +1,85 @@
+# Import libraries
+import os
+os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
+import numpy as np
+from PIL import Image
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report, roc_auc_score, roc_curve, auc, confusion_matrix, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
+from tensorflow.keras.optimizers import Adam
+
+# Function to load and preprocess image
+def load_image(image_path, size=(64, 64)):
+    img = Image.open(image_path).convert('RGB')
+    img = img.resize(size)  # Resize to fixed size
+    img_array = np.array(img) / 255.0  # Normalize to [0,1]
+    return img_array
+
+# Load data
+sehat_paths = [os.path.join('Sehat', f) for f in os.listdir('Sehat') if f.endswith('.jpg')]
+vsd_paths = [os.path.join('VSD', f) for f in os.listdir('VSD') if f.endswith('.jpg')]
+all_paths = sehat_paths + vsd_paths
+labels = [0] * len(sehat_paths) + [1] * len(vsd_paths)
+
+# Load images
+images = []
+for path in all_paths:
+    img = load_image(path)
+    images.append(img)
+images = np.array(images)
+labels = np.array(labels)
+
+# Train-val split
+X_train, X_val, y_train, y_val = train_test_split(images, labels, test_size=0.2, random_state=42)
+
+# Build CNN model
+model = Sequential()
+model.add(Conv2D(32, (3, 3), activation='relu', input_shape=(64, 64, 3)))
+model.add(MaxPooling2D((2, 2)))
+model.add(Conv2D(64, (3, 3), activation='relu'))
+model.add(MaxPooling2D((2, 2)))
+model.add(Flatten())
+model.add(Dense(128, activation='relu'))
+model.add(Dense(1, activation='sigmoid'))
+
+# Compile model
+model.compile(loss='binary_crossentropy', optimizer=Adam(), metrics=['accuracy'])
+
+# Train model
+history = model.fit(X_train, y_train, epochs=10, batch_size=32, validation_data=(X_val, y_val), verbose=1)
+
+# Predict on validation set
+y_pred_proba = model.predict(X_val).flatten()
+y_pred = (y_pred_proba > 0.5).astype(int)
+
+# Evaluate
+accuracy = accuracy_score(y_val, y_pred)
+print(f'Validation Accuracy: {accuracy * 100:.2f}%')
+print('Classification Report:')
+print(classification_report(y_val, y_pred, target_names=['Sehat', 'VSD']))
+
+# ROC-AUC
+roc_auc = roc_auc_score(y_val, y_pred_proba)
+print(f'ROC-AUC: {roc_auc:.2f}')
+
+# Plot ROC Curve
+fpr, tpr, _ = roc_curve(y_val, y_pred_proba)
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color='blue', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='gray', lw=2, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic (ROC) Curve')
+plt.legend(loc="lower right")
+plt.show()
+
+# Confusion Matrix
+cm = confusion_matrix(y_val, y_pred)
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Sehat', 'VSD'])
+disp.plot(cmap=plt.cm.Blues)
+plt.title('Confusion Matrix')
+plt.show()
